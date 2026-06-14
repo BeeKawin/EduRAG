@@ -1,12 +1,7 @@
-const introKey = "ragaib-demo-intro";
 const apiBaseKey = "ragaib-demo-api-base";
-const defaultIntro =
-  "This demo compares a curriculum-grounded RAG answer against a baseline LLM answer. Edit this text to describe your current RAG system, dataset, vector database, or evaluation goal.";
 
 const $ = (id) => document.getElementById(id);
 
-const introText = $("introText");
-const resetIntro = $("resetIntro");
 const form = $("evalForm");
 const runButton = $("runButton");
 const statusText = $("status");
@@ -126,20 +121,12 @@ function buildPayload() {
   };
 }
 
-introText.textContent = localStorage.getItem(introKey) || defaultIntro;
 apiBaseUrl.value =
   localStorage.getItem(apiBaseKey) ||
   cleanApiBaseUrl(window.RAGAIB_API_BASE_URL || "");
 
-introText.addEventListener("input", () => {
-  localStorage.setItem(introKey, introText.textContent.trim());
-});
 apiBaseUrl.addEventListener("input", () => {
   localStorage.setItem(apiBaseKey, cleanApiBaseUrl(apiBaseUrl.value));
-});
-resetIntro.addEventListener("click", () => {
-  introText.textContent = defaultIntro;
-  localStorage.setItem(introKey, defaultIntro);
 });
 
 form.addEventListener("submit", async (event) => {

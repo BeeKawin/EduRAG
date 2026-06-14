@@ -3,30 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>RAGAI-B Live Eval Demo</title>
+    <title>EduRAG Live Eval Demo</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <header class="topbar">
       <div>
-        <p class="eyebrow">RAGAI-B Demo</p>
+        <p class="eyebrow">EduRAG Demo</p>
         <h1>Live RAG vs Baseline Evaluation</h1>
       </div>
       <div class="status" id="status">Ready</div>
     </header>
 
     <main class="shell">
-      <section class="intro panel">
-        <div class="section-head">
-          <h2>Homepage Description</h2>
-          <button id="resetIntro" type="button">Reset</button>
-        </div>
-        <div id="introText" class="editable" contenteditable="true" spellcheck="true">
-          This demo compares a curriculum-grounded RAG answer against a baseline LLM answer. Edit this text to describe your current RAG system, dataset, vector database, or evaluation goal.
-        </div>
-        <p class="hint">This text is saved in your browser only.</p>
-      </section>
-
       <section class="workspace">
         <form id="evalForm" class="panel controls">
           <div class="section-head">
