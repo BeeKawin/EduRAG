@@ -1,4 +1,4 @@
 // Optional frontend runtime config.
 // For local FastAPI hosting, leave this blank so the demo uses same-origin requests.
 // For Vercel, set this to your Railway backend URL after deployment.
-window.RAGAIB_API_BASE_URL = "ragaibdeploy-production.up.railway.app";
+window.RAGAIB_API_BASE_URL = "https://ragaibdeploy-production.up.railway.app";
