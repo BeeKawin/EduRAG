@@ -1,6 +1,6 @@
-# RAGAI-B
+# EduRAG
 
-RAGAI-B is an educational Retrieval-Augmented Generation system for Thai high-school science and mathematics. It combines scraped/normalized curriculum content, BGE-M3 embeddings, Chroma retrieval, OpenRouter-compatible LLM generation, and evaluator workflows for both dataset-based and live query testing.
+EduRAG is an educational Retrieval-Augmented Generation system for Thai high-school science and mathematics. It combines scraped/normalized curriculum content, BGE-M3 embeddings, Chroma retrieval, OpenRouter-compatible LLM generation, and evaluator workflows for both dataset-based and live query testing.
 
 ## What This Project Does
 
@@ -65,21 +65,3 @@ http://127.0.0.1:8000/demo/
   ```powershell
   .\.venv\Scripts\python.exe -m evaluation.run_eval --dataset .\physics_bee_20.csv --resume-from .\data\eval\results\YOUR_FILE.jsonl
   ```
-
-## Documentation
-
-Start here:
-
-- [Architecture Overview](docs/ARCHITECTURE.md)
-- [Workflow Guide](docs/WORKFLOWS.md)
-- [Evaluation Guide](docs/EVALUATION.md)
-- [Demo and Deployment Notes](docs/DEMO_AND_DEPLOYMENT.md)
-- [Vercel + Railway Deployment Guide](docs/VERCEL_RAILWAY_DEPLOYMENT.md)
-- [Deployment Handoff](docs/DEPLOYMENT_HANDOFF.md)
-- [Deployment Status Checklist](docs/DEPLOYMENT_STATUS_CHECKLIST.md)
-- [Deployment File Manifest](docs/DEPLOYMENT_FILE_MANIFEST.md)
-- [Git Deployment Workflow](docs/GIT_DEPLOYMENT_WORKFLOW.md)
-- [Railway Environment Variables](docs/RAILWAY_ENV_VARS.md)
-- [Vercel Frontend Setup](docs/VERCEL_SETUP.md)
-- [Deployment Troubleshooting](docs/DEPLOYMENT_TROUBLESHOOTING.md)
-- [Mentor Presentation Notes](docs/PRESENTATION_NOTES.md)
