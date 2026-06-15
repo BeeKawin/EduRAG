@@ -112,6 +112,25 @@ class TestLiveQueryEval(unittest.TestCase):
         self.assertEqual(result.rag_scores.completeness, 3)
         self.assertEqual(result.baseline_scores.correctness, 1)
 
+    def test_judge_live_answers_falls_back_when_output_is_not_json(self):
+        fake_llm = Mock()
+        fake_llm.invoke.return_value = FakeResponse("I cannot provide JSON for this request.")
+
+        with patch.object(live_query_eval, "_get_judge_llm", return_value=fake_llm):
+            result = live_query_eval.judge_live_answers(
+                question="What is force?",
+                context="Force is a push or pull.",
+                rag_answer="Force is a push or pull.",
+                baseline_answer="Force is an interaction.",
+                preferred_answer_type="quick-answer",
+                language="EN",
+            )
+
+        self.assertEqual(result.winner, "tie")
+        self.assertEqual(result.rag_scores.correctness, 3)
+        self.assertEqual(result.rag_scores.target_answer_type, "quick-answer")
+        self.assertIn("malformed", result.comparison_rationale)
+
     def test_run_live_query_saves_jsonl_and_defaults_invalid_type(self):
         fake_chain = Mock()
         fake_chain.get_context_docs.return_value = [

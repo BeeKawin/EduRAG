@@ -215,6 +215,53 @@ def parse_live_judge_response(text: str, preferred_answer_type: Optional[str] = 
     )
 
 
+def _fallback_live_scores(
+    preferred_answer_type: Optional[str],
+    error: Exception,
+    raw_output: str = "",
+) -> LiveQueryScores:
+    target_answer_type = normalize_answer_type(preferred_answer_type)
+    rationale = (
+        "Live judge output was malformed, so these are neutral placeholder scores. "
+        f"Parser error: {error}"
+    )
+    if raw_output.strip():
+        rationale += f" Raw judge output preview: {raw_output.strip()[:180]}"
+
+    neutral_band = calculate_overall_band(3, 3, 3, 3, 3)
+    rag_scores = JudgeResult(
+        correctness=3,
+        groundedness=3,
+        completeness=3,
+        clarity=3,
+        type_alignment=3,
+        target_answer_type=target_answer_type,
+        detected_answer_type="general",
+        overall_band=neutral_band,
+        rationale=rationale,
+    )
+    baseline_scores = JudgeResult(
+        correctness=3,
+        groundedness=3,
+        completeness=3,
+        clarity=3,
+        type_alignment=3,
+        target_answer_type=target_answer_type,
+        detected_answer_type="general",
+        overall_band=neutral_band,
+        rationale=rationale,
+    )
+    return LiveQueryScores(
+        rag_scores=rag_scores,
+        baseline_scores=baseline_scores,
+        winner="tie",
+        comparison_rationale=(
+            "The RAG and baseline answers were generated, but the judge output was malformed and did not return valid JSON. "
+            "Comparison scores are neutral placeholders; use a stronger judge model for reliable live evaluation."
+        ),
+    )
+
+
 def _build_live_judge_prompt(
     question: str,
     context: str,
@@ -232,7 +279,8 @@ Compare two answers to the same student question:
 2. Baseline answer: generated without retrieval.
 
 Judge both answers against the question, the retrieved curriculum context, and the selected response preferences.
-Return ONLY valid JSON.
+Return ONLY one valid JSON object. The first character must be "{" and the last character must be "}".
+Do not include markdown, code fences, prose, headings, or comments.
 
 Use this JSON structure:
 {{
@@ -312,7 +360,11 @@ def judge_live_answers(
     content = getattr(response, "content", response)
     if isinstance(content, list):
         content = "\n".join(str(item) for item in content)
-    return parse_live_judge_response(str(content), preferred_answer_type)
+    text = str(content)
+    try:
+        return parse_live_judge_response(text, preferred_answer_type)
+    except Exception as exc:
+        return _fallback_live_scores(preferred_answer_type, exc, text)
 
 
 def _live_query_path(timestamp: str) -> Path:
