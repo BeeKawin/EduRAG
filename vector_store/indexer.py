@@ -34,10 +34,6 @@ from config.settings import (
 # ── Embedding model ───────────────────────────────────────────────────────────
 
 def get_embedding_model() -> HuggingFaceEmbeddings:
-    """
-    paraphrase-multilingual-MiniLM-L12-v2
-    ↳ 50+ languages including Thai, 384-dim, cosine similarity.
-    """
     logger.info(f"Loading embeddings: {EMBEDDING_MODEL}")
     return HuggingFaceEmbeddings(
         model_name=EMBEDDING_MODEL,
