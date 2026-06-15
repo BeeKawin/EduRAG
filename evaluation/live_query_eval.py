@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from config.settings import (
     LLM_MODEL,
     OPENROUTER_API_KEY,
@@ -125,6 +127,54 @@ Question:
 """.strip()
 
 
+def _build_baseline_messages(
+    question: str,
+    preferred_answer_type: Optional[str] = None,
+    language: Optional[str] = None,
+) -> list:
+    answer_type = normalize_answer_type(preferred_answer_type)
+    system = f"""
+You are an educational tutor for Thai high-school students.
+Answer the user's question directly.
+Do not return safety labels, moderation labels, metadata, or policy classifications.
+Do not claim that you used retrieved curriculum context or citations.
+
+Target language: {_target_language(language)}
+Target answer type: {answer_type}
+
+Answer type meanings:
+- quick-answer: short and direct.
+- homework-help: step-by-step with formulas, substitutions, calculations, and final answer.
+- concept-focused: explain meanings, relationships, and why ideas work.
+- exam-prep: concise revision with key formulas, common exam points, and common mistakes.
+- general: balanced, clear, educational answer.
+""".strip()
+    return [SystemMessage(content=system), HumanMessage(content=question)]
+
+
+def _looks_like_non_answer(text: str) -> bool:
+    normalized = " ".join((text or "").strip().lower().split())
+    if not normalized:
+        return True
+    exact_non_answers = {
+        "user safety: safe",
+        "safe",
+        "unsafe",
+        "i cannot provide json for this request.",
+    }
+    if normalized in exact_non_answers:
+        return True
+    non_answer_markers = [
+        "user safety:",
+        "assistant safety:",
+        "safety:",
+        "content safety:",
+        "moderation:",
+        "policy:",
+    ]
+    return any(normalized.startswith(marker) for marker in non_answer_markers)
+
+
 def generate_baseline_answer(
     question: str,
     preferred_answer_type: Optional[str] = None,
@@ -132,7 +182,7 @@ def generate_baseline_answer(
     baseline_model: Optional[str] = None,
 ) -> str:
     llm = _get_baseline_llm(baseline_model)
-    response = llm.invoke(_build_baseline_prompt(question, preferred_answer_type, language))
+    response = llm.invoke(_build_baseline_messages(question, preferred_answer_type, language))
     content = getattr(response, "content", response)
     if isinstance(content, list):
         return "\n".join(str(item) for item in content)
@@ -219,6 +269,8 @@ def _fallback_live_scores(
     preferred_answer_type: Optional[str],
     error: Exception,
     raw_output: str = "",
+    rag_answer: str = "",
+    baseline_answer: str = "",
 ) -> LiveQueryScores:
     target_answer_type = normalize_answer_type(preferred_answer_type)
     rationale = (
@@ -228,33 +280,57 @@ def _fallback_live_scores(
     if raw_output.strip():
         rationale += f" Raw judge output preview: {raw_output.strip()[:180]}"
 
-    neutral_band = calculate_overall_band(3, 3, 3, 3, 3)
+    rag_is_non_answer = _looks_like_non_answer(rag_answer)
+    baseline_is_non_answer = _looks_like_non_answer(baseline_answer)
+
+    rag_metric = 1 if rag_is_non_answer else 3
+    baseline_metric = 1 if baseline_is_non_answer else 3
+    rag_band = calculate_overall_band(rag_metric, rag_metric, rag_metric, rag_metric, rag_metric)
+    baseline_band = calculate_overall_band(
+        baseline_metric,
+        baseline_metric,
+        baseline_metric,
+        baseline_metric,
+        baseline_metric,
+    )
+    rag_rationale = rationale
+    baseline_rationale = rationale
+    if rag_is_non_answer:
+        rag_rationale += " RAG answer looked like a non-answer/safety label."
+    if baseline_is_non_answer:
+        baseline_rationale += " Baseline answer looked like a non-answer/safety label."
+
     rag_scores = JudgeResult(
-        correctness=3,
-        groundedness=3,
-        completeness=3,
-        clarity=3,
-        type_alignment=3,
+        correctness=rag_metric,
+        groundedness=rag_metric,
+        completeness=rag_metric,
+        clarity=rag_metric,
+        type_alignment=rag_metric,
         target_answer_type=target_answer_type,
         detected_answer_type="general",
-        overall_band=neutral_band,
-        rationale=rationale,
+        overall_band=rag_band,
+        rationale=rag_rationale,
     )
     baseline_scores = JudgeResult(
-        correctness=3,
-        groundedness=3,
-        completeness=3,
-        clarity=3,
-        type_alignment=3,
+        correctness=baseline_metric,
+        groundedness=baseline_metric,
+        completeness=baseline_metric,
+        clarity=baseline_metric,
+        type_alignment=baseline_metric,
         target_answer_type=target_answer_type,
         detected_answer_type="general",
-        overall_band=neutral_band,
-        rationale=rationale,
+        overall_band=baseline_band,
+        rationale=baseline_rationale,
     )
+    winner = "tie"
+    if rag_band > baseline_band:
+        winner = "rag"
+    elif baseline_band > rag_band:
+        winner = "baseline"
     return LiveQueryScores(
         rag_scores=rag_scores,
         baseline_scores=baseline_scores,
-        winner="tie",
+        winner=winner,
         comparison_rationale=(
             "The RAG and baseline answers were generated, but the judge output was malformed and did not return valid JSON. "
             "Comparison scores are neutral placeholders; use a stronger judge model for reliable live evaluation."
@@ -364,7 +440,7 @@ def judge_live_answers(
     try:
         return parse_live_judge_response(text, preferred_answer_type)
     except Exception as exc:
-        return _fallback_live_scores(preferred_answer_type, exc, text)
+        return _fallback_live_scores(preferred_answer_type, exc, text, rag_answer, baseline_answer)
 
 
 def _live_query_path(timestamp: str) -> Path:

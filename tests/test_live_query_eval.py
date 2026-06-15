@@ -41,11 +41,13 @@ class TestLiveQueryEval(unittest.TestCase):
                 language="EN",
             )
 
-        prompt = fake_llm.invoke.call_args.args[0]
+        messages = fake_llm.invoke.call_args.args[0]
+        prompt = "\n".join(message.content for message in messages)
         self.assertEqual(answer, "baseline answer")
         self.assertNotIn("Retrieved curriculum context", prompt)
         self.assertNotIn("secret context", prompt)
         self.assertIn("Target answer type: concept-focused", prompt)
+        self.assertIn("Do not return safety labels", prompt)
 
     def test_parse_live_judge_response(self):
         raw = json.dumps(
@@ -130,6 +132,26 @@ class TestLiveQueryEval(unittest.TestCase):
         self.assertEqual(result.rag_scores.correctness, 3)
         self.assertEqual(result.rag_scores.target_answer_type, "quick-answer")
         self.assertIn("malformed", result.comparison_rationale)
+
+    def test_judge_live_answers_penalizes_baseline_safety_label_fallback(self):
+        fake_llm = Mock()
+        fake_llm.invoke.return_value = FakeResponse("I cannot provide JSON for this request.")
+
+        with patch.object(live_query_eval, "_get_judge_llm", return_value=fake_llm):
+            result = live_query_eval.judge_live_answers(
+                question="What is force?",
+                context="Force is a push or pull.",
+                rag_answer="Force is a push or pull.",
+                baseline_answer="User Safety: safe",
+                preferred_answer_type="quick-answer",
+                language="EN",
+            )
+
+        self.assertEqual(result.winner, "rag")
+        self.assertEqual(result.rag_scores.overall_band, 6)
+        self.assertEqual(result.baseline_scores.correctness, 1)
+        self.assertEqual(result.baseline_scores.overall_band, 1)
+        self.assertIn("non-answer", result.baseline_scores.rationale)
 
     def test_run_live_query_saves_jsonl_and_defaults_invalid_type(self):
         fake_chain = Mock()
