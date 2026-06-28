@@ -257,6 +257,12 @@ textarea {
   margin-top: 12px;
 }
 
+.metric-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.5rem 0 0;
+}
+
 .metric {
   padding: 9px 8px;
   border: 1px solid var(--line);

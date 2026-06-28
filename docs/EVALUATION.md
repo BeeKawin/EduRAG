@@ -104,6 +104,13 @@ Purpose:
 
 This mode does not require a reference answer. It uses retrieved curriculum context as the grounding source.
 
+For a fair comparison, both live answers receive an `overall_band` based only on
+metrics that apply to both systems: correctness (46.67%), completeness (20%),
+clarity (20%), and type alignment (13.33%). Groundedness remains a RAG-only
+diagnostic and does not affect either answer's live comparison band or the
+winner. The API returns `baseline_scores.groundedness` as `null` (`N/A` in the
+demo). Dataset-based evaluation continues to use the five-metric formula above.
+
 Stored output:
 
 ```text

@@ -25,6 +25,14 @@ class TestDemoSite(unittest.TestCase):
         self.assertIn("formatAnswerHtml", app_js)
         self.assertIn("innerHTML = formatAnswerHtml", app_js)
 
+    def test_demo_marks_baseline_groundedness_not_applicable(self):
+        app_js = (BASE_DIR / "demo" / "app.js").read_text(encoding="utf-8")
+        index_html = (BASE_DIR / "demo" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('key === "groundedness" && scores?.[key] === null', app_js)
+        self.assertIn('notApplicable ? "N/A"', app_js)
+        self.assertIn("Groundedness is a RAG-only diagnostic", index_html)
+
 
 if __name__ == "__main__":
     unittest.main()

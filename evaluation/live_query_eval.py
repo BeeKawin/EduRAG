@@ -26,14 +26,27 @@ from .eval_config import (
     JUDGE_TIMEOUT_SECONDS,
     LIVE_QUERY_DIR,
 )
-from .judge import JudgeResult, calculate_overall_band, normalize_answer_type
+from .judge import normalize_answer_type
 from .run_eval import _format_context
 
 
 @dataclass
+class LiveAnswerScores:
+    correctness: int
+    groundedness: int | None
+    completeness: int
+    clarity: int
+    type_alignment: int
+    target_answer_type: str
+    detected_answer_type: str
+    overall_band: int
+    rationale: str
+
+
+@dataclass
 class LiveQueryScores:
-    rag_scores: JudgeResult
-    baseline_scores: JudgeResult
+    rag_scores: LiveAnswerScores
+    baseline_scores: LiveAnswerScores
     winner: str
     comparison_rationale: str
 
@@ -209,12 +222,47 @@ def _coerce_score(value: Any) -> int:
     return max(1, min(5, numeric))
 
 
-def _score_from_payload(payload: dict[str, Any], target_answer_type: str) -> JudgeResult:
+def calculate_live_overall_band(
+    correctness: int,
+    completeness: int,
+    clarity: int,
+    type_alignment: int,
+) -> int:
+    """Calculate a fair live-comparison band using metrics applicable to both answers."""
+    overall_band = round(
+        2.25
+        * (
+            correctness * (7 / 15)
+            + completeness * (1 / 5)
+            + clarity * (1 / 5)
+            + type_alignment * (2 / 15)
+        )
+        - 1.25
+    )
+    overall_band = max(1, min(10, overall_band))
+
+    if correctness <= 1:
+        overall_band = min(overall_band, 3)
+    elif correctness <= 2:
+        overall_band = min(overall_band, 5)
+    if completeness <= 2:
+        overall_band = min(overall_band, 7)
+    if type_alignment <= 2:
+        overall_band = min(overall_band, 8)
+    return overall_band
+
+
+def _score_from_payload(
+    payload: dict[str, Any],
+    target_answer_type: str,
+    *,
+    include_groundedness: bool,
+) -> LiveAnswerScores:
     if "type_alignment" not in payload and "safety" in payload:
         payload["type_alignment"] = payload["safety"]
 
     scores: dict[str, int] = {}
-    for key in ["correctness", "groundedness", "completeness", "clarity", "type_alignment"]:
+    for key in ["correctness", "completeness", "clarity", "type_alignment"]:
         try:
             scores[key] = _coerce_score(payload.get(key))
         except Exception as exc:
@@ -224,17 +272,25 @@ def _score_from_payload(payload: dict[str, Any], target_answer_type: str) -> Jud
     if not isinstance(rationale, str):
         raise ValueError("Live judge rationale must be a string")
 
-    return JudgeResult(
+    groundedness = None
+    if include_groundedness:
+        try:
+            groundedness = _coerce_score(payload.get("groundedness"))
+        except Exception as exc:
+            raise ValueError(
+                f"Invalid live judge score for 'groundedness': {payload.get('groundedness')}"
+            ) from exc
+
+    return LiveAnswerScores(
         correctness=scores["correctness"],
-        groundedness=scores["groundedness"],
+        groundedness=groundedness,
         completeness=scores["completeness"],
         clarity=scores["clarity"],
         type_alignment=scores["type_alignment"],
         target_answer_type=target_answer_type,
         detected_answer_type=normalize_answer_type(payload.get("detected_answer_type")),
-        overall_band=calculate_overall_band(
+        overall_band=calculate_live_overall_band(
             scores["correctness"],
-            scores["groundedness"],
             scores["completeness"],
             scores["clarity"],
             scores["type_alignment"],
@@ -246,12 +302,18 @@ def _score_from_payload(payload: dict[str, Any], target_answer_type: str) -> Jud
 def parse_live_judge_response(text: str, preferred_answer_type: Optional[str] = None) -> LiveQueryScores:
     payload = _extract_json_object(text)
     target_answer_type = normalize_answer_type(preferred_answer_type)
-    rag_scores = _score_from_payload(dict(payload.get("rag_scores") or {}), target_answer_type)
-    baseline_scores = _score_from_payload(dict(payload.get("baseline_scores") or {}), target_answer_type)
+    rag_scores = _score_from_payload(
+        dict(payload.get("rag_scores") or {}), target_answer_type, include_groundedness=True
+    )
+    baseline_scores = _score_from_payload(
+        dict(payload.get("baseline_scores") or {}), target_answer_type, include_groundedness=False
+    )
 
-    winner = str(payload.get("winner", "tie")).strip().lower()
-    if winner not in {"rag", "baseline", "tie"}:
-        winner = "tie"
+    winner = "tie"
+    if rag_scores.overall_band > baseline_scores.overall_band:
+        winner = "rag"
+    elif baseline_scores.overall_band > rag_scores.overall_band:
+        winner = "baseline"
 
     comparison_rationale = payload.get("comparison_rationale", "")
     if not isinstance(comparison_rationale, str):
@@ -285,13 +347,9 @@ def _fallback_live_scores(
 
     rag_metric = 1 if rag_is_non_answer else 3
     baseline_metric = 1 if baseline_is_non_answer else 3
-    rag_band = calculate_overall_band(rag_metric, rag_metric, rag_metric, rag_metric, rag_metric)
-    baseline_band = calculate_overall_band(
-        baseline_metric,
-        baseline_metric,
-        baseline_metric,
-        baseline_metric,
-        baseline_metric,
+    rag_band = calculate_live_overall_band(rag_metric, rag_metric, rag_metric, rag_metric)
+    baseline_band = calculate_live_overall_band(
+        baseline_metric, baseline_metric, baseline_metric, baseline_metric
     )
     rag_rationale = rationale
     baseline_rationale = rationale
@@ -300,7 +358,7 @@ def _fallback_live_scores(
     if baseline_is_non_answer:
         baseline_rationale += " Baseline answer looked like a non-answer/safety label."
 
-    rag_scores = JudgeResult(
+    rag_scores = LiveAnswerScores(
         correctness=rag_metric,
         groundedness=rag_metric,
         completeness=rag_metric,
@@ -311,9 +369,9 @@ def _fallback_live_scores(
         overall_band=rag_band,
         rationale=rag_rationale,
     )
-    baseline_scores = JudgeResult(
+    baseline_scores = LiveAnswerScores(
         correctness=baseline_metric,
-        groundedness=baseline_metric,
+        groundedness=None,
         completeness=baseline_metric,
         clarity=baseline_metric,
         type_alignment=baseline_metric,
@@ -371,33 +429,32 @@ Use this JSON structure:
   }},
   "baseline_scores": {{
     "correctness": 1,
-    "groundedness": 1,
+    "groundedness": null,
     "completeness": 1,
     "clarity": 1,
     "type_alignment": 1,
     "detected_answer_type": "general",
     "rationale": "Short reason."
   }},
-  "winner": "rag",
   "comparison_rationale": "Short comparison."
 }}
 
 Scoring rubric:
 - correctness: factual and mathematical accuracy.
-- groundedness: support from retrieved curriculum context.
+- groundedness: support from retrieved curriculum context; score this only for the RAG answer and always return null for the baseline.
 - completeness: covers the important ideas needed to answer.
 - clarity: clear for high-school learners.
 - type_alignment: matches the target answer type.
 
-Scores must be integers from 1 to 5.
+Applicable scores must be integers from 1 to 5; baseline groundedness must be null.
 Never use 0. If an answer is extremely poor, use 1.
-Winner must be one of: rag, baseline, tie.
 
 Important scoring behavior:
 - Score each metric independently.
 - If retrieved context is missing or weak, groundedness may be 1, but correctness, clarity, completeness, and type_alignment can still be higher if the answer deserves it.
 - Do not give all-1 scores just because one metric is weak.
-- Baseline answers do not have retrieval, so they may score lower on groundedness, but they can still be correct and clear.
+- Baseline groundedness is not applicable because the baseline does not receive retrieved context. Never penalize it for this.
+- Compare the answers and choose the winner using correctness, completeness, clarity, and type_alignment only. RAG groundedness is diagnostic and must not influence the winner.
 
 Target language: {_target_language(language)}
 Target answer type: {target_answer_type}

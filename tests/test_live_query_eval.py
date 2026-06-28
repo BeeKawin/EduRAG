@@ -6,7 +6,6 @@ from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 
 from chat.api import app
-from evaluation.judge import JudgeResult
 from evaluation import live_query_eval
 
 
@@ -79,7 +78,7 @@ class TestLiveQueryEval(unittest.TestCase):
 
         self.assertEqual(result.winner, "rag")
         self.assertEqual(result.rag_scores.target_answer_type, "homework-help")
-        self.assertEqual(result.baseline_scores.groundedness, 2)
+        self.assertIsNone(result.baseline_scores.groundedness)
 
     def test_parse_live_judge_response_clamps_malformed_numeric_scores(self):
         raw = json.dumps(
@@ -113,6 +112,41 @@ class TestLiveQueryEval(unittest.TestCase):
         self.assertEqual(result.rag_scores.groundedness, 5)
         self.assertEqual(result.rag_scores.completeness, 3)
         self.assertEqual(result.baseline_scores.correctness, 1)
+        self.assertIsNone(result.baseline_scores.groundedness)
+
+    def test_live_band_uses_shared_metrics_and_ignores_groundedness(self):
+        raw = json.dumps(
+            {
+                "rag_scores": {
+                    "correctness": 5,
+                    "groundedness": 1,
+                    "completeness": 5,
+                    "clarity": 5,
+                    "type_alignment": 5,
+                    "detected_answer_type": "general",
+                    "rationale": "Strong answer but weak retrieval support.",
+                },
+                "baseline_scores": {
+                    "correctness": 5,
+                    "groundedness": 1,
+                    "completeness": 5,
+                    "clarity": 5,
+                    "type_alignment": 5,
+                    "detected_answer_type": "general",
+                    "rationale": "Same shared quality.",
+                },
+                "winner": "rag",
+                "comparison_rationale": "Shared quality is equal.",
+            }
+        )
+
+        result = live_query_eval.parse_live_judge_response(raw)
+
+        self.assertEqual(result.rag_scores.overall_band, 10)
+        self.assertEqual(result.baseline_scores.overall_band, 10)
+        self.assertEqual(result.rag_scores.groundedness, 1)
+        self.assertIsNone(result.baseline_scores.groundedness)
+        self.assertEqual(result.winner, "tie")
 
     def test_judge_live_answers_falls_back_when_output_is_not_json(self):
         fake_llm = Mock()
@@ -151,6 +185,7 @@ class TestLiveQueryEval(unittest.TestCase):
         self.assertEqual(result.rag_scores.overall_band, 6)
         self.assertEqual(result.baseline_scores.correctness, 1)
         self.assertEqual(result.baseline_scores.overall_band, 1)
+        self.assertIsNone(result.baseline_scores.groundedness)
         self.assertIn("non-answer", result.baseline_scores.rationale)
 
     def test_run_live_query_saves_jsonl_and_defaults_invalid_type(self):
@@ -164,8 +199,8 @@ class TestLiveQueryEval(unittest.TestCase):
         ]
         fake_chain.ask.return_value = "RAG answer"
         fake_scores = live_query_eval.LiveQueryScores(
-            rag_scores=JudgeResult(5, 5, 5, 5, 5, "general", "general", 10, "strong"),
-            baseline_scores=JudgeResult(3, 2, 3, 4, 4, "general", "general", 5, "weaker"),
+            rag_scores=live_query_eval.LiveAnswerScores(5, 5, 5, 5, 5, "general", "general", 10, "strong"),
+            baseline_scores=live_query_eval.LiveAnswerScores(3, None, 3, 4, 4, "general", "general", 6, "weaker"),
             winner="rag",
             comparison_rationale="RAG is better grounded.",
         )
@@ -193,6 +228,7 @@ class TestLiveQueryEval(unittest.TestCase):
         saved = json.loads(rows[0])
         self.assertIn("rag_scores", saved)
         self.assertIn("baseline_scores", saved)
+        self.assertIsNone(saved["baseline_scores"]["groundedness"])
 
     def test_live_query_api_response_includes_both_answers(self):
         fake_result = {

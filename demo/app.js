@@ -89,10 +89,10 @@ function formatAnswerHtml(answer) {
     });
 }
 
-function metricCard(label, value) {
+function metricCard(label, value, notApplicable = false) {
   const node = document.createElement("div");
   node.className = "metric";
-  node.innerHTML = `<span>${label}</span><strong>${value ?? "-"}</strong>`;
+  node.innerHTML = `<span>${label}</span><strong>${notApplicable ? "N/A" : (value ?? "-")}</strong>`;
   return node;
 }
 
@@ -105,7 +105,10 @@ function renderMetrics(containerId, scores) {
     ["Complete", "completeness"],
     ["Clear", "clarity"],
     ["Type", "type_alignment"],
-  ].forEach(([label, key]) => container.appendChild(metricCard(label, scores?.[key])));
+  ].forEach(([label, key]) => {
+    const notApplicable = key === "groundedness" && scores?.[key] === null;
+    container.appendChild(metricCard(label, scores?.[key], notApplicable));
+  });
 }
 
 function bandText(scores) {
